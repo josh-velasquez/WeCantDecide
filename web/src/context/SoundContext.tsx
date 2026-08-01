@@ -2,12 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { playCoinFlip, playWheelSpin } from '../audio/sfx'
+import { playCoinFlip, playWheelSpin, unlockAudio } from '../audio/sfx'
 
 const STORAGE_KEY = 'wcd-sound-muted'
 
@@ -20,6 +21,15 @@ type SoundContextValue = {
 
 const SoundContext = createContext<SoundContextValue | null>(null)
 
+function createAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null
+  const AC =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!AC) return null
+  return new AC()
+}
+
 export function SoundProvider({ children }: { children: ReactNode }) {
   /** Default off; only `localStorage === '0'` means the user enabled sound. */
   const [muted, setMuted] = useState(() => {
@@ -30,15 +40,27 @@ export function SoundProvider({ children }: { children: ReactNode }) {
     }
   })
   const ctxRef = useRef<AudioContext | null>(null)
+  const mutedRef = useRef(muted)
+  mutedRef.current = muted
 
   const getCtx = useCallback((): AudioContext | null => {
-    if (typeof window === 'undefined') return null
-    if (!ctxRef.current) {
-      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-      if (Ctx) ctxRef.current = new Ctx()
-    }
+    if (!ctxRef.current) ctxRef.current = createAudioContext()
     return ctxRef.current
   }, [])
+
+  /**
+   * Kick resume in the same synchronous turn as the tap (required on iOS).
+   * Full unlock (silent buffer) may finish async right after.
+   */
+  const primeFromGesture = useCallback((): AudioContext | null => {
+    const ctx = getCtx()
+    if (!ctx) return null
+    if (ctx.state === 'suspended') {
+      void ctx.resume()
+    }
+    void unlockAudio(ctx)
+    return ctx
+  }, [getCtx])
 
   const toggleMuted = useCallback(() => {
     setMuted((m) => {
@@ -48,18 +70,48 @@ export function SoundProvider({ children }: { children: ReactNode }) {
       } catch {
         /* ignore */
       }
+      // Unlock while we still have the unmute tap gesture.
+      if (!next) primeFromGesture()
       return next
     })
-    void getCtx()?.resume()
-  }, [getCtx])
+  }, [primeFromGesture])
+
+  // Keep context alive after backgrounding / silent switch quirks on mobile.
+  useEffect(() => {
+    const onVisible = () => {
+      if (mutedRef.current) return
+      const ctx = ctxRef.current
+      if (ctx?.state === 'suspended') void unlockAudio(ctx)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+
+  // One-shot unlock on first pointer/touch after sound is enabled.
+  useEffect(() => {
+    if (muted) return
+    const unlock = () => {
+      primeFromGesture()
+    }
+    document.addEventListener('pointerdown', unlock, { once: true, capture: true })
+    document.addEventListener('touchstart', unlock, { once: true, capture: true })
+    return () => {
+      document.removeEventListener('pointerdown', unlock, true)
+      document.removeEventListener('touchstart', unlock, true)
+    }
+  }, [muted, primeFromGesture])
 
   const doCoin = useCallback(() => {
-    void playCoinFlip(getCtx(), muted)
-  }, [getCtx, muted])
+    if (mutedRef.current) return
+    const ctx = primeFromGesture()
+    void playCoinFlip(ctx, false)
+  }, [primeFromGesture])
 
   const doWheel = useCallback(() => {
-    void playWheelSpin(getCtx(), muted)
-  }, [getCtx, muted])
+    if (mutedRef.current) return
+    const ctx = primeFromGesture()
+    void playWheelSpin(ctx, false)
+  }, [primeFromGesture])
 
   const value = useMemo(
     () => ({

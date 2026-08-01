@@ -2,9 +2,25 @@
 export const COIN_FLIP_MS = 900
 export const WHEEL_SPIN_MS = 4500
 
-function ensureCtx(ctx: AudioContext): Promise<void> {
-  if (ctx.state === 'suspended') return ctx.resume().then(() => undefined)
-  return Promise.resolve()
+/**
+ * Unlock Web Audio on iOS/Safari: resume + tiny silent buffer must run from a
+ * user gesture. Safe to call repeatedly.
+ */
+export async function unlockAudio(ctx: AudioContext): Promise<boolean> {
+  try {
+    if (ctx.state === 'suspended') {
+      await ctx.resume()
+    }
+    // iOS often needs an actual buffer start to fully unlock output.
+    const buf = ctx.createBuffer(1, 1, ctx.sampleRate)
+    const src = ctx.createBufferSource()
+    src.buffer = buf
+    src.connect(ctx.destination)
+    src.start(0)
+    return ctx.state === 'running'
+  } catch {
+    return false
+  }
 }
 
 /** Metallic spin + landing clink, ~COIN_FLIP_MS. */
@@ -12,7 +28,6 @@ export function playCoinFlipSound(ctx: AudioContext): void {
   const t0 = ctx.currentTime
   const dur = COIN_FLIP_MS / 1000
 
-  // Noise "tumble" (filtered)
   const noiseLen = Math.floor(ctx.sampleRate * dur)
   const buf = ctx.createBuffer(1, noiseLen, ctx.sampleRate)
   const ch = buf.getChannelData(0)
@@ -32,13 +47,12 @@ export function playCoinFlipSound(ctx: AudioContext): void {
   bp.Q.value = 0.9
   const nGain = ctx.createGain()
   nGain.gain.setValueAtTime(0, t0)
-  nGain.gain.linearRampToValueAtTime(0.22, t0 + 0.04)
+  nGain.gain.linearRampToValueAtTime(0.32, t0 + 0.04)
   nGain.gain.exponentialRampToValueAtTime(0.01, t0 + dur)
   noise.connect(bp).connect(nGain).connect(ctx.destination)
   noise.start(t0)
   noise.stop(t0 + dur)
 
-  // High "zing" layer while spinning
   const osc = ctx.createOscillator()
   osc.type = 'triangle'
   osc.frequency.setValueAtTime(520, t0)
@@ -46,20 +60,19 @@ export function playCoinFlipSound(ctx: AudioContext): void {
   osc.frequency.exponentialRampToValueAtTime(400, t0 + dur)
   const oGain = ctx.createGain()
   oGain.gain.setValueAtTime(0, t0)
-  oGain.gain.linearRampToValueAtTime(0.045, t0 + 0.02)
+  oGain.gain.linearRampToValueAtTime(0.07, t0 + 0.02)
   oGain.gain.exponentialRampToValueAtTime(0.001, t0 + dur * 0.85)
   osc.connect(oGain).connect(ctx.destination)
   osc.start(t0)
   osc.stop(t0 + dur)
 
-  // Landing clink (matches animation end)
   const clink = ctx.createOscillator()
   clink.type = 'sine'
   clink.frequency.setValueAtTime(2200, t0 + dur * 0.92)
   clink.frequency.exponentialRampToValueAtTime(880, t0 + dur)
   const cGain = ctx.createGain()
   cGain.gain.setValueAtTime(0, t0 + dur * 0.88)
-  cGain.gain.linearRampToValueAtTime(0.12, t0 + dur * 0.9)
+  cGain.gain.linearRampToValueAtTime(0.18, t0 + dur * 0.9)
   cGain.gain.exponentialRampToValueAtTime(0.001, t0 + dur + 0.08)
   clink.connect(cGain).connect(ctx.destination)
   clink.start(t0 + dur * 0.88)
@@ -72,7 +85,7 @@ function playTickAt(ctx: AudioContext, when: number, freq: number): void {
   osc.frequency.value = freq
   const g = ctx.createGain()
   g.gain.setValueAtTime(0, when)
-  g.gain.linearRampToValueAtTime(0.06, when + 0.003)
+  g.gain.linearRampToValueAtTime(0.09, when + 0.003)
   g.gain.exponentialRampToValueAtTime(0.001, when + 0.045)
   const f = ctx.createBiquadFilter()
   f.type = 'lowpass'
@@ -82,13 +95,12 @@ function playTickAt(ctx: AudioContext, when: number, freq: number): void {
   osc.stop(when + 0.05)
 }
 
-/** Rumble + slowing ticks for ~WHEEL_SPIN_MS (ease-out spacing like wheel deceleration). */
+/** Rumble + slowing ticks for ~WHEEL_SPIN_MS. */
 export function playWheelSpinSound(ctx: AudioContext): void {
   const t0 = ctx.currentTime
   const totalMs = WHEEL_SPIN_MS
   const dur = totalMs / 1000
 
-  // Low rumble
   const len = Math.floor(ctx.sampleRate * dur)
   const buf = ctx.createBuffer(1, len, ctx.sampleRate)
   const data = buf.getChannelData(0)
@@ -110,14 +122,13 @@ export function playWheelSpinSound(ctx: AudioContext): void {
   bp.Q.value = 2
   const g = ctx.createGain()
   g.gain.setValueAtTime(0, t0)
-  g.gain.linearRampToValueAtTime(0.28, t0 + 0.08)
-  g.gain.setValueAtTime(0.22, t0 + dur * 0.5)
+  g.gain.linearRampToValueAtTime(0.38, t0 + 0.08)
+  g.gain.setValueAtTime(0.3, t0 + dur * 0.5)
   g.gain.exponentialRampToValueAtTime(0.02, t0 + dur)
   src.connect(low).connect(bp).connect(g).connect(ctx.destination)
   src.start(t0)
   src.stop(t0 + dur)
 
-  // Ticks: spacing increases (wheel slows) — match cubic ease-out feel
   let tMs = 0
   let i = 0
   while (tMs < totalMs - 30 && i < 180) {
@@ -133,12 +144,14 @@ export function playWheelSpinSound(ctx: AudioContext): void {
 
 export async function playCoinFlip(ctx: AudioContext | null, muted: boolean): Promise<void> {
   if (muted || !ctx) return
-  await ensureCtx(ctx)
+  const ok = await unlockAudio(ctx)
+  if (!ok || muted) return
   playCoinFlipSound(ctx)
 }
 
 export async function playWheelSpin(ctx: AudioContext | null, muted: boolean): Promise<void> {
   if (muted || !ctx) return
-  await ensureCtx(ctx)
+  const ok = await unlockAudio(ctx)
+  if (!ok || muted) return
   playWheelSpinSound(ctx)
 }

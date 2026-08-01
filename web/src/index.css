@@ -19,3 +19,21 @@
     padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
   }
 }
+
+@keyframes wcd-confetti {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wcd-motion-safe {
+    transition: none !important;
+    animation: none !important;
+  }
+}
