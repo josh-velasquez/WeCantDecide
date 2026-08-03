@@ -24,11 +24,11 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - name: Install and build
+        working-directory: web
         env:
-          # Project site: https://<user>.github.io/<repo>/
           VITE_BASE: /${{ github.event.repository.name }}/
         run: |
           npm ci
@@ -41,7 +41,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: web/dist
 
   deploy:
     needs: build
