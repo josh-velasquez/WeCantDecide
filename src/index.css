@@ -1,0 +1,39 @@
+@import 'tailwindcss';
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    @apply m-0 min-h-dvh overflow-x-hidden antialiased;
+    @apply bg-zinc-950 text-zinc-100;
+  }
+
+  #root {
+    @apply mx-auto flex min-h-dvh max-w-3xl flex-col;
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    padding-top: max(1rem, env(safe-area-inset-top, 0px));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@keyframes wcd-confetti {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wcd-motion-safe {
+    transition: none !important;
+    animation: none !important;
+  }
+}

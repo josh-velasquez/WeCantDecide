@@ -24,17 +24,15 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install and build
-        working-directory: web
         env:
           # Project site: https://<user>.github.io/<repo>/
           VITE_BASE: /${{ github.event.repository.name }}/
         run: |
           npm ci
           npm run build
-          # Prevent Jekyll from ignoring files if Pages ever serves via branch
           touch dist/.nojekyll
 
       - name: Setup Pages
@@ -43,7 +41,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: web/dist
+          path: dist
 
   deploy:
     needs: build
